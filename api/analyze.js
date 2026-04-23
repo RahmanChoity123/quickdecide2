@@ -19,7 +19,7 @@ export default async function handler(req, res) {
 
   const prompt = `You are a ruthlessly efficient AI chief of staff for a busy LinkedIn professional. Analyze this task list and categorize each item into exactly one of: DO (do it yourself NOW - high value + urgent), DELEGATE (someone else should do this), DEFER (do later, not urgent), DELETE (not worth doing).
 
-Return ONLY valid JSON, no markdown fences, no explanation. Format:
+Return ONLY valid JSON, no markdown fences, no explanation, no extra text before or after. Format:
 {
   "tasks": [
     {
@@ -31,7 +31,7 @@ Return ONLY valid JSON, no markdown fences, no explanation. Format:
     }
   ],
   "insight": "One powerful insight about this person's task list (2-3 sentences, brutally honest, actionable)",
-  "hoursSaved": number between 1 and 5
+  "hoursSaved": 2
 }
 
 Task list:
@@ -39,7 +39,7 @@ ${tasks}`;
 
   try {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
       {
         method: 'POST',
         headers: {
@@ -50,7 +50,8 @@ ${tasks}`;
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.7,
-            maxOutputTokens: 1000
+            maxOutputTokens: 1500,
+            responseMimeType: 'application/json'  // Force JSON output
           }
         })
       }
@@ -63,12 +64,18 @@ ${tasks}`;
     }
 
     const raw = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const clean = raw.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(clean);
-
+    
+    // Robust JSON extraction — finds first { ... } block
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) {
+      return res.status(500).json({ error: 'Could not parse AI response' });
+    }
+    
+    const parsed = JSON.parse(match[0]);
     return res.status(200).json(parsed);
+
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Something went wrong' });
+    console.error('Error:', err.message);
+    return res.status(500).json({ error: 'Something went wrong: ' + err.message });
   }
 }
